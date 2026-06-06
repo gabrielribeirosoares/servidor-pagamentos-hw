@@ -5,17 +5,15 @@ const admin = require('firebase-admin');
 
 const app = express();
 
-
 app.use(cors({
     origin: ['https://garagemhw.web.app', 'http://127.0.0.1:5500'],
     methods: ['POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type']
 }));
 
-// Aumentamos o limite para 10mb para suportar o tamanho das fotos do celular
 app.use(express.json({ limit: '10mb' }));
 
-// 2. Conecta ao seu Firebase de forma segura
+// Firebase
 try {
     const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
     admin.initializeApp({
@@ -28,7 +26,39 @@ try {
 
 const db = admin.firestore();
 
-// 3. Recebe a ordem de pagamento e gera o link do Mercado Pago
+// --- ROTAÇÃO DE CHAVES GEMINI ---
+const GEMINI_KEYS = [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_1,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    process.env.GEMINI_API_KEY_4,
+].filter(Boolean);
+
+let keyIndex = 0;
+
+function chamarGemini(chave, mimeType, base64Data) {
+    return fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${chave}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            contents: [{
+                parts: [
+                    { text: "Você é um especialista em Hot Wheels. Olhe esta foto da cartela e identifique o nome do modelo. Responda APENAS com o nome curto do carro (ex: 'Nissan Skyline', 'Bone Shaker'). NÃO responda o código de lote. Seja exato, sem explicações, aspas ou descrições." },
+                    { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]
+            }],
+            generationConfig: {
+                temperature: 0.4,
+                topK: 32,
+                topP: 1,
+                maxOutputTokens: 100,
+            }
+        })
+    });
+}
+
+// Rota Mercado Pago
 app.post('/checkout', async (req, res) => {
     try {
         const { pedidoId, valor, clienteId, lojaId } = req.body;
@@ -69,41 +99,35 @@ app.post('/checkout', async (req, res) => {
     }
 });
 
-// 4. Rota Segura para a IA do Google Gemini
+// Rota IA com rotação automática de chaves
 app.post('/scan-hotwheels', async (req, res) => {
     try {
         const { mimeType, imageBase64 } = req.body;
-
-        // 1. Limpa o prefixo do Base64 se existir
         const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
 
-        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-        if (!GEMINI_API_KEY) return res.status(500).json({ error: "Chave não configurada." });
+        if (GEMINI_KEYS.length === 0) {
+            return res.status(500).json({ error: "Nenhuma chave Gemini configurada." });
+        }
 
-        // Substitua o trecho do fetch dentro da sua rota /scan-hotwheels por este:
-       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [
-                        {  text: "Você é um especialista em Hot Wheels. Olhe esta foto da cartela e identifique o nome do modelo. Responda APENAS com o nome curto do carro (ex: 'Nissan Skyline', 'Bone Shaker'). NÃO responda o código de lote. Seja exato, sem explicações, aspas ou descrições." },
-                        { inline_data: { mime_type: mimeType, data: base64Data } }
-                    ]
-                }],
-                // Opcional: Adicionando configuração de geração para garantir estabilidade
-                generationConfig: {
-                    temperature: 0.4,
-                    topK: 32,
-                    topP: 1,
-                    maxOutputTokens: 100,
-                }
-            })
-        });
+        let tentativas = 0;
+        let data = null;
 
-        const data = await response.json();
+        while (tentativas < GEMINI_KEYS.length) {
+            const chaveAtual = GEMINI_KEYS[keyIndex];
+            console.log(`Tentativa ${tentativas + 1} com chave índice ${keyIndex}`);
 
-        // 2. Loga o erro do Gemini no painel do Render se houver
+            const response = await chamarGemini(chaveAtual, mimeType, base64Data);
+            data = await response.json();
+
+            if (data.error?.code === 429) {
+                console.warn(`Chave ${keyIndex} com quota esgotada (429). Trocando...`);
+                keyIndex = (keyIndex + 1) % GEMINI_KEYS.length;
+                tentativas++;
+            } else {
+                break;
+            }
+        }
+
         if (data.error) {
             console.error("Erro do Gemini API:", JSON.stringify(data.error));
             return res.status(500).json({ error: data.error.message });
