@@ -73,28 +73,36 @@ app.post('/checkout', async (req, res) => {
 app.post('/scan-hotwheels', async (req, res) => {
     try {
         const { mimeType, imageBase64 } = req.body;
-        
+
         // 1. Limpa o prefixo do Base64 se existir
         const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
 
-        const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
         if (!GEMINI_API_KEY) return res.status(500).json({ error: "Chave não configurada." });
 
+        // Substitua o trecho do fetch dentro da sua rota /scan-hotwheels por este:
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{
                     parts: [
-                        { text: "Identifique este Hot Wheels. Responda apenas o nome do modelo." },
+                        { text: "Você é um especialista em Hot Wheels e miniaturas diecast. Olhe esta foto da cartela ou miniatura e identifique. Responda APENAS com o nome curto do carro (ex: 'Nissan Skyline') ou o código de lote. Seja exato, sem explicações, aspas ou descrições." },
                         { inline_data: { mime_type: mimeType, data: base64Data } }
                     ]
-                }]
+                }],
+                // Opcional: Adicionando configuração de geração para garantir estabilidade
+                generationConfig: {
+                    temperature: 0.4,
+                    topK: 32,
+                    topP: 1,
+                    maxOutputTokens: 100,
+                }
             })
         });
 
         const data = await response.json();
-        
+
         // 2. Loga o erro do Gemini no painel do Render se houver
         if (data.error) {
             console.error("Erro do Gemini API:", JSON.stringify(data.error));
