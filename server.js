@@ -5,14 +5,15 @@ const admin = require('firebase-admin');
 
 const app = express();
 
-// 1. Libera o seu site para acessar este servidor
+
 app.use(cors({
-    origin: 'https://garagemhw.web.app',
+    origin: ['https://garagemhw.web.app', 'http://127.0.0.1:5500'],
     methods: ['POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type']
 }));
 
-app.use(express.json());
+// Aumentamos o limite para 10mb para suportar o tamanho das fotos do celular
+app.use(express.json({ limit: '10mb' }));
 
 // 2. Conecta ao seu Firebase de forma segura
 try {
@@ -65,6 +66,46 @@ app.post('/checkout', async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: "Erro interno no servidor." });
+    }
+});
+
+// 4. Rota Segura para a IA do Google Gemini
+app.post('/scan-hotwheels', async (req, res) => {
+    try {
+        const { mimeType, imageBase64 } = req.body;
+        
+        // A chave será puxada direto das variáveis seguras do Render
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+
+        if (!GEMINI_API_KEY) {
+            return res.status(500).json({ error: "Chave da API não configurada no servidor." });
+        }
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: "Você é um especialista em Hot Wheels e miniaturas diecast. Olhe esta foto da cartela ou miniatura e identifique. Responda APENAS com o nome curto do carro (ex: 'Nissan Skyline') ou o código de lote. Seja exato, sem explicações, aspas ou descrições." },
+                        { inline_data: { mime_type: mimeType, data: imageBase64 } }
+                    ]
+                }]
+            })
+        });
+
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error.message);
+        }
+
+        const carroIdentificado = data.candidates[0].content.parts[0].text.trim().replace(/\n/g, "");
+        return res.status(200).json({ result: carroIdentificado });
+
+    } catch (error) {
+        console.error("Erro no Gemini:", error);
+        return res.status(500).json({ error: "Falha ao analisar a imagem." });
     }
 });
 
