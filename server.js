@@ -81,13 +81,13 @@ app.post('/scan-hotwheels', async (req, res) => {
         if (!GEMINI_API_KEY) return res.status(500).json({ error: "Chave não configurada." });
 
         // Substitua o trecho do fetch dentro da sua rota /scan-hotwheels por este:
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{
                     parts: [
-                        { text: "Você é um especialista em Hot Wheels e miniaturas diecast. Olhe esta foto da cartela ou miniatura e identifique. Responda APENAS com o nome curto do carro (ex: 'Nissan Skyline') ou o código de lote. Seja exato, sem explicações, aspas ou descrições." },
+                        {  text: "Você é um especialista em Hot Wheels. Olhe esta foto da cartela e identifique o nome do modelo. Responda APENAS com o nome curto do carro (ex: 'Nissan Skyline', 'Bone Shaker'). NÃO responda o código de lote. Seja exato, sem explicações, aspas ou descrições." },
                         { inline_data: { mime_type: mimeType, data: base64Data } }
                     ]
                 }],
