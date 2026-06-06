@@ -74,12 +74,11 @@ app.post('/scan-hotwheels', async (req, res) => {
     try {
         const { mimeType, imageBase64 } = req.body;
         
-        // A chave será puxada direto das variáveis seguras do Render
-        const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+        // 1. Limpa o prefixo do Base64 se existir
+        const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
 
-        if (!GEMINI_API_KEY) {
-            return res.status(500).json({ error: "Chave da API não configurada no servidor." });
-        }
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+        if (!GEMINI_API_KEY) return res.status(500).json({ error: "Chave não configurada." });
 
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
@@ -87,8 +86,8 @@ app.post('/scan-hotwheels', async (req, res) => {
             body: JSON.stringify({
                 contents: [{
                     parts: [
-                        { text: "Você é um especialista em Hot Wheels e miniaturas diecast. Olhe esta foto da cartela ou miniatura e identifique. Responda APENAS com o nome curto do carro (ex: 'Nissan Skyline') ou o código de lote. Seja exato, sem explicações, aspas ou descrições." },
-                        { inline_data: { mime_type: mimeType, data: imageBase64 } }
+                        { text: "Identifique este Hot Wheels. Responda apenas o nome do modelo." },
+                        { inline_data: { mime_type: mimeType, data: base64Data } }
                     ]
                 }]
             })
@@ -96,16 +95,18 @@ app.post('/scan-hotwheels', async (req, res) => {
 
         const data = await response.json();
         
+        // 2. Loga o erro do Gemini no painel do Render se houver
         if (data.error) {
-            throw new Error(data.error.message);
+            console.error("Erro do Gemini API:", JSON.stringify(data.error));
+            return res.status(500).json({ error: data.error.message });
         }
 
-        const carroIdentificado = data.candidates[0].content.parts[0].text.trim().replace(/\n/g, "");
-        return res.status(200).json({ result: carroIdentificado });
+        const carroIdentificado = data.candidates[0].content.parts[0].text.trim();
+        res.status(200).json({ result: carroIdentificado });
 
     } catch (error) {
-        console.error("Erro no Gemini:", error);
-        return res.status(500).json({ error: "Falha ao analisar a imagem." });
+        console.error("Erro interno do servidor:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 
